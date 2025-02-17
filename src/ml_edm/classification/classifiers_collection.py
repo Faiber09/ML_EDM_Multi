@@ -50,6 +50,8 @@ class ClassifiersCollection(BaseTimeClassifier):
         classifiers : numpy.ndarray, default=None
             List or array containing the classifier instances to be trained. Argument 'nb_classifiers' is deduced from
             the length of this list.
+        requires_2d : boolean, default=True
+            Whether the classifier requires 2D input data or not.
 
     Attributes:
     -----------
@@ -76,6 +78,7 @@ class ClassifiersCollection(BaseTimeClassifier):
                  feature_extraction=None,
                  calibration=True,
                  classifiers=None,
+                 requires_2d=True,
                  random_state=44):  
         
         super().__init__(timestamps, 
@@ -87,6 +90,7 @@ class ClassifiersCollection(BaseTimeClassifier):
 
         self.feature_extraction = feature_extraction
         self.calibration = calibration
+        self.requires_2d = requires_2d
         self.random_state = random_state
 
     def __getitem__(self, item):
@@ -140,23 +144,42 @@ class ClassifiersCollection(BaseTimeClassifier):
         # FEATURE EXTRACTION AND FITTING
         self.extractors = []
         for i, ts_length in enumerate(self.timestamps):
-            Xt = X[:, :ts_length]
+            Xt = X[:, :, :ts_length]
+            # If requires_2d is True, the input data is reshaped to 2D.
+            # TO DO: Note that feature_extraction, classifiers and calibration could require 2D Separately
+            if self.requires_2d:
+                Xt = Xt.reshape(X.shape[0], -1)
+            else:
+                Xt = Xt
+
+
             if self.feature_extraction:
                 scale = True if self.feature_extraction['method'] == 'minirocket' else False
-                self.extractors.append(Feature_extractor(self.feature_extraction['method'], scale, 
-                                                         kwargs=self.feature_extraction['params']).fit(Xt, y))
-                Xt = self.extractors[-1].transform(Xt)
+                extractor = Feature_extractor(self.feature_extraction['method'], scale,
+                                              kwargs=self.feature_extraction['params'])
+                extractor.fit(Xt, y)
+                self.extractors.append(extractor)
+                Xt = extractor.transform(Xt)
 
-            if self.calibration:
-                Xt_clf, X_calib, y_clf, y_calib = train_test_split(Xt.reshape(len(X),-1), y, test_size=0.3, stratify=y,
-                                                                    random_state=self.random_state)
+            # Prepare the input format for the classifier based on the requires_2d flag.
+                        
+            if self.requires_2d:
+                Xt_input = Xt.reshape(X.shape[0], -1)
             else:
-                Xt_clf, y_clf = (Xt.reshape(len(X),-1), y) # keep all training samples
-                #Xt_clf, _, y_clf, _ = train_test_split(Xt.reshape(len(X),-1), y, test_size=0.3, stratify=y,
-                #                                       random_state=self.random_state) # throw calib samples
+                Xt_input = Xt
 
+            # Calibration: split the training data if calibration is enabled.
+            if self.calibration:
+                Xt_clf, X_calib, y_clf, y_calib = train_test_split(
+                    Xt_input, y, test_size=0.3, stratify=y, random_state=self.random_state
+                )
+            else:
+                Xt_clf, y_clf = Xt_input, y # keep all training samples
+
+            # Fit the classifier for the current timestamp.
             self.classifiers[i].fit(Xt_clf, y_clf, **kwargs)
-            
+
+            # If calibration is enabled, perform calibration on the fitted classifier.
             if self.calibration:
                 calib_clf = CalibratedClassifierCV(self.classifiers[i], cv='prefit')
                 self.classifiers[i] = calib_clf.fit(X_calib, y_calib)
