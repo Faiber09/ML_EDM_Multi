@@ -245,6 +245,13 @@ class ClassifiersCollection(BaseTimeClassifier):
                 predictions.append(priors)
                 returned_priors = True
             else:
+                ## We are assuming that length is in the timestamps
+                ## In case the length is not in the timestamps, use the closest smaller timestamp
+                #if length in self.timestamps:
+                #    clf_idx = np.where(self.timestamps == length)[0][0]
+                #else:
+                #    # Use the closest timestamp that is less than or equal to length
+                #    clf_idx = np.where(self.timestamps < length)[0][-1]  # Last valid smaller timestamp
                 clf_idx = np.where(
                     self.timestamps == length
                 )[0][0]
