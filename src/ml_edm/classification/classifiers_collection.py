@@ -214,18 +214,28 @@ class ClassifiersCollection(BaseTimeClassifier):
                 predictions.append(np.ones((len(series), len(self.class_prior))) * self.class_prior)
                 returned_priors = True
             else:
-                clf_idx = np.where(
-                    self.timestamps == length
-                )[0][0]
-                series = np.array(series).reshape(len(series),-1)
-                if self.feature_extraction and os.path.isdir(str(self.feature_extraction)):
-                    fts_idx = clf_idx
-                    if hasattr(self, "prev_models_input_lengths"):
-                        fts_idx = np.where(self.prev_models_input_lengths == length)[0][0]
-                    series = np.load(self.feature_extraction+f"/features_{fts_idx}.npy")
-                elif self.feature_extraction:
-                    series = self.extractors[clf_idx].transform(series)
-
+                # We are assuming that length match one of the timestamps
+                clf_idx = np.where(self.timestamps == length)[0][0]
+                # Ensure it's a numpy array; expected shape: (N, D, length)
+                series = np.array(series)
+                if self.feature_extraction:
+                # Use precomputed features if the feature_extraction parameter is a directory.
+                    if os.path.isdir(str(self.feature_extraction)):
+                        fts_idx = clf_idx
+                        if hasattr(self, "prev_models_input_lengths"):
+                            fts_idx = np.where(self.prev_models_input_lengths == length)[0][0]
+                        series = np.load(self.feature_extraction+f"/features_{fts_idx}.npy")
+                    else:
+                        # If the extractor requires 2D input, reshape first.
+                        if self.feature_extractor_requ_2d:
+                            series = series.reshape(series.shape[0], -1)
+                        # Transform using the feature extractor.
+                        series = self.extractors[clf_idx].transform(series)
+                else:
+                    # No feature extraction: prepare data for the classifier.
+                    if self.classifiers_requ_2d:
+                        series = series.reshape(series.shape[0], -1)
+                    # Otherwise, leave the series in its 3D form.
                 predictions.append(
                     self.classifiers[clf_idx].predict_proba(series)
                 )  
@@ -247,7 +257,7 @@ class ClassifiersCollection(BaseTimeClassifier):
                 predictions.append(priors)
                 returned_priors = True
             else:
-                ## We are assuming that length is in the timestamps
+                ## We are assuming that length match one of the timestamps
                 ## In case the length is not in the timestamps, use the closest smaller timestamp
                 #if length in self.timestamps:
                 #    clf_idx = np.where(self.timestamps == length)[0][0]
