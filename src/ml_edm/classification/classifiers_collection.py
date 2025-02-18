@@ -50,8 +50,12 @@ class ClassifiersCollection(BaseTimeClassifier):
         classifiers : numpy.ndarray, default=None
             List or array containing the classifier instances to be trained. Argument 'nb_classifiers' is deduced from
             the length of this list.
-        requires_2d : boolean, default=True
-            Whether the classifier, feature_extractor and fit of classifiers requires 2D input data or not.
+        classsifiers_requ_2d : boolean, default=False
+            Whether the classifier requires 2D input data or not.
+        feature_extractor_requ_2d : boolean, default=False
+            Whether the feature extractor requires 2D input data or not.
+        calibrator_requ_2d : boolean, default=False
+            Whether the calibrator requires 2D input data or not for its fit method.
 
     Attributes:
     -----------
@@ -78,7 +82,9 @@ class ClassifiersCollection(BaseTimeClassifier):
                  feature_extraction=None,
                  calibration=True,
                  classifiers=None,
-                 requires_2d=True,
+                 classifiers_requ_2d=False,
+                 feature_extractor_requ_2d=False,
+                 calibrator_requ_2d=False,
                  random_state=44):  
         
         super().__init__(timestamps, 
@@ -90,7 +96,9 @@ class ClassifiersCollection(BaseTimeClassifier):
 
         self.feature_extraction = feature_extraction
         self.calibration = calibration
-        self.requires_2d = requires_2d
+        self.classifiers_requ_2d = classifiers_requ_2d
+        self.feature_extractor_requ_2d = feature_extractor_requ_2d
+        self.calibrator_requ_2d = calibrator_requ_2d
         self.random_state = random_state
 
     def __getitem__(self, item):
@@ -146,17 +154,10 @@ class ClassifiersCollection(BaseTimeClassifier):
         self.extractors = []
         for i, ts_length in enumerate(self.timestamps):
             Xt = X[:, :, :ts_length]
-            # If requires_2d is True, the input data is reshaped to 2D.
-            
-            # TO DO: Note that feature_extraction, fit and calibration could require 2D Separately
-            # TO DO: That's why this redundant reshape, I should probably add a requires_2d attribute to each of them
-            
-            if self.requires_2d:
-                Xt = Xt.reshape(X.shape[0], -1)
-            else:
-                Xt = Xt
-
             if self.feature_extraction:
+                # If feature_extractor_requ_2d is True, the input data is reshaped to 2D.            
+                if self.feature_extractor_requ_2d:
+                    Xt = Xt.reshape(X.shape[0], -1)
                 scale = True if self.feature_extraction['method'] == 'minirocket' else False
                 extractor = Feature_extractor(self.feature_extraction['method'], scale,
                                               kwargs=self.feature_extraction['params'])
@@ -165,25 +166,26 @@ class ClassifiersCollection(BaseTimeClassifier):
                 Xt = extractor.transform(Xt)
 
             # Prepare the input format for the classifier based on the requires_2d flag.
-                        
-            if self.requires_2d:
-                Xt_input = Xt.reshape(X.shape[0], -1)
-            else:
-                Xt_input = Xt
-
             # Calibration: split the training data if calibration is enabled.
             if self.calibration:
                 Xt_clf, X_calib, y_clf, y_calib = train_test_split(
-                    Xt_input, y, test_size=0.3, stratify=y, random_state=self.random_state
+                    Xt, y, test_size=0.3, stratify=y, random_state=self.random_state
                 )
             else:
-                Xt_clf, y_clf = Xt_input, y # keep all training samples
+                Xt_clf, y_clf = Xt, y # keep all training samples
 
+            # If classifiers_requ_2d is True, the input data is reshaped to 2D.
+            if self.classifiers_requ_2d:
+                Xt_clf = Xt_clf.reshape(Xt_clf.shape[0], -1)
             # Fit the classifier for the current timestamp.
             self.classifiers[i].fit(Xt_clf, y_clf, **kwargs)
 
+
             # If calibration is enabled, perform calibration on the fitted classifier.
             if self.calibration:
+                # if calibrator_requ_2d is True, the input data is reshaped to 2D.
+                if self.calibrator_requ_2d:
+                    X_calib = X_calib.reshape(X_calib.shape[0], -1)
                 calib_clf = CalibratedClassifierCV(self.classifiers[i], cv='prefit')
                 self.classifiers[i] = calib_clf.fit(X_calib, y_calib)
 
