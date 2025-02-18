@@ -51,7 +51,7 @@ class ClassifiersCollection(BaseTimeClassifier):
             List or array containing the classifier instances to be trained. Argument 'nb_classifiers' is deduced from
             the length of this list.
         requires_2d : boolean, default=True
-            Whether the classifier requires 2D input data or not.
+            Whether the classifier, feature_extractor and fit of classifiers requires 2D input data or not.
 
     Attributes:
     -----------
@@ -107,8 +107,9 @@ class ClassifiersCollection(BaseTimeClassifier):
 
         Parameters:
             X: np.ndarray
-                Training set of matrix shape (N, T) where:
+                Training set of matrix shape (N, D, T) where:
                     N is the number of time series
+                    D is the number of dimensions of each time series
                     T is the commune length of all complete time series
             y: nd.ndarray
                 List of the N corresponding labels of the training set.
@@ -146,12 +147,14 @@ class ClassifiersCollection(BaseTimeClassifier):
         for i, ts_length in enumerate(self.timestamps):
             Xt = X[:, :, :ts_length]
             # If requires_2d is True, the input data is reshaped to 2D.
-            # TO DO: Note that feature_extraction, classifiers and calibration could require 2D Separately
+            
+            # TO DO: Note that feature_extraction, fit and calibration could require 2D Separately
+            # TO DO: That's why this redundant reshape, I should probably add a requires_2d attribute to each of them
+            
             if self.requires_2d:
                 Xt = Xt.reshape(X.shape[0], -1)
             else:
                 Xt = Xt
-
 
             if self.feature_extraction:
                 scale = True if self.feature_extraction['method'] == 'minirocket' else False
