@@ -246,62 +246,97 @@ class ClassifiersCollection(BaseTimeClassifier):
         return np.vstack(predictions)
     
     def _predict_past_proba(self, grouped_X, cost_matrices=None):
+        """
+        For each group of time series (grouped by their current length), this method computes
+        predictions for all past time points up to the current length using the corresponding classifiers.
+        If a time series is shorter than the smallest trained length (self.timestamps[0]),
+        the class prior probabilities are returned.
 
-        # Return prior if no classifier fitted for time series this short, 
-        # predict with classifier otherwise
+        Parameters:
+            grouped_X: dict
+                Dictionary where keys are time series lengths and values are lists/arrays of time series.
+                Each time series is assumed to have shape (D, T) and when batched, (N, D, T).
+            cost_matrices: (optional) not used.
+
+        Returns:
+            A list of predictions. For each sample, the predictions are arranged over time steps.
+        """
         predictions = []
         returned_priors = False
         for length, series in grouped_X.items():
+            # If the series is too short, return prior probabilities.
             if length < self.timestamps[0]:
                 priors = np.ones((len(series), len(self.class_prior))) * self.class_prior
                 predictions.append(priors)
                 returned_priors = True
             else:
-                ## We are assuming that length match one of the timestamps
+                # We assume that length exactly matches one of the trained timestamps.
                 ## In case the length is not in the timestamps, use the closest smaller timestamp
                 #if length in self.timestamps:
                 #    clf_idx = np.where(self.timestamps == length)[0][0]
                 #else:
-                #    # Use the closest timestamp that is less than or equal to length
+                #    # Use the closest timestamp that is less than to length (but we would need padding)
                 #    clf_idx = np.where(self.timestamps < length)[0][-1]  # Last valid smaller timestamp
-                clf_idx = np.where(
-                    self.timestamps == length
-                )[0][0]
+                clf_idx = np.where(self.timestamps == length)[0][0]
+                # Ensure series is a numpy array with shape (N, D, T) where T == length.
+                series = np.array(series)
+
                 if length != self.timestamps[0]:
-                    series = np.array(series) # allow for slicing
-                    
-                    if self.feature_extraction and os.path.isdir(str(self.feature_extraction)):
-                        partial_series = [np.load(self.feature_extraction+f"/features_{j}.npy") 
-                                          for j in range(clf_idx+1)]
-                    elif self.feature_extraction:
-                        partial_series = [
-                            self.extractors[j].transform(
-                            series[:, :self.timestamps[j]])
-                            for j in range(clf_idx+1)
-                        ]
-                    else:
-                        partial_series = [series[:, :self.timestamps[j]].reshape(len(series),-1)
-                                          for j in range(clf_idx+1)]
-
-                    all_probas = [
-                        self.classifiers[j].predict_proba(x) for j, x in enumerate(partial_series)
-                    ]
-                    all_probas = list(
-                        np.array(all_probas).transpose((1,0,2))
-                    )
-                else:
+                    # For each time stamp up to the current one, we prepare a partial series.
                     if self.feature_extraction:
-                        series = self.extractors[0].transform(series)
+                        if os.path.isdir(str(self.feature_extraction)):
+                            # Load precomputed features for each time stamp j in [0, clf_idx].
+                            partial_series = [np.load(self.feature_extraction + f"/features_{j}.npy")
+                                            for j in range(clf_idx + 1)]
+                        else:
+                            partial_series = []
+                            for j in range(clf_idx + 1):
+                                # Slice the series up to the j-th timestamp.
+                                sliced = series[:, :, :self.timestamps[j]]
+                                # If the extractor requires 2D, flatten the sliced data.
+                                if self.feature_extractor_requ_2d:
+                                    sliced = sliced.reshape(sliced.shape[0], -1)
+                                transformed = self.extractors[j].transform(sliced)
+                                partial_series.append(transformed)
+                    else:
+                        # No feature extraction: simply slice the raw series.
+                        partial_series = []
+                        for j in range(clf_idx + 1):
+                            sliced = series[:, :, :self.timestamps[j]]
+                            # If the classifier was trained with 2D data, flatten the slice.
+                            if self.classifiers_requ_2d:
+                                sliced = sliced.reshape(sliced.shape[0], -1)
+                            partial_series.append(sliced)
 
-                    all_probas = self.classifiers[0].predict_proba(np.array(series))
-                    all_probas = list(np.expand_dims(all_probas, 1))
+                    # For each partial series, use the corresponding classifier to predict probabilities.
+                    all_probas = [self.classifiers[j].predict_proba(x)
+                                for j, x in enumerate(partial_series)]
+                    # Convert the list (shape: [n_steps, N, n_classes]) into an array and
+                    # transpose it to shape: (N, n_steps, n_classes)
+                    all_probas = np.array(all_probas).transpose((1, 0, 2))
+                    all_probas = list(all_probas)
+                else:
+                    # For the shortest valid series (i.e. when length == self.timestamps[0]):
+                    if self.feature_extraction:
+                        # Prepare input for feature extraction.
+                        if self.feature_extractor_requ_2d:
+                            series = series.reshape(series.shape[0], -1)
+
+                        series = self.extractors[0].transform(series)
+                    # if the classifier requires 2D, flatten the data.
+                    if self.classifiers_requ_2d:
+                        series = series.reshape(series.shape[0], -1)
+                    # Get predictions for the first classifier.
+                    all_probas = self.classifiers[0].predict_proba(series)
+                    # Expand dims so that shape becomes (N, 1, n_classes)
+                    all_probas = np.expand_dims(all_probas, axis=1)
+                    all_probas = list(all_probas)
 
                 predictions.extend(all_probas)
 
-        # Send warnings if necessary
         if returned_priors:
-            warn("Some time series are of insufficient length for prediction ;"
-                 " returning prior probabilities instead.")
+            warn("Some time series are of insufficient length for prediction; returning prior probabilities instead.")
 
         return predictions
+
 
