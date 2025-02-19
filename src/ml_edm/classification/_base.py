@@ -119,17 +119,45 @@ class BaseTimeClassifier(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
     
     def _grouped_by_length(self, X):
 
+        """
+        Group time series in X by their number of timestamps (last dimension).
+        
+        For each series in X (assumed to be in shape (D, T)), if its time length (T)
+        is not present in self.timestamps and is greater than the smallest valid timestamp,
+        the series is truncated to the nearest valid timestamp (i.e. the largest value
+        in self.timestamps that is less than or equal to the series’ length).
+        
+        Parameters
+        ----------
+        X : iterable of numpy.ndarray
+            A collection of time series, each with shape (D, T), where D is the number of dimensions
+            and T is the number of timestamps.
+        
+        Returns
+        -------
+        grouped_X : dict
+            A dictionary where the keys are valid timestamps (lengths) and the values are lists of time series
+            that have been (if necessary) truncated to that length.
+        
+        Side Effects
+        ------------
+        if a series is shorter than self.timestamps[0], it doesn't trigger the truncation block and will be 
+        grouped under its actual length as its key in the dictionary.
+        A warning is issued if any series were truncated because their original length did not match any of the
+        fitted timestamps.
+        """
+
         truncated = False
         grouped_X = {}
         for serie in X:
-            length = len(serie)
+            length = serie.shape[-1]
             if length not in self.timestamps and \
                 length > self.timestamps[0]:
                 # truncate to nearest valid timestamp
                 filtered = filter(lambda x: x <= length, self.timestamps)
                 length = min(filtered, key=lambda x: length-x, default=None)
-                if length:
-                    serie = serie[:length]
+                if length is not None:
+                    serie = serie[:, :length]
                     truncated = True
 
             if length in grouped_X.keys():
