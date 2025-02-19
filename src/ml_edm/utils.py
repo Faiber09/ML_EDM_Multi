@@ -84,6 +84,12 @@ def check_X_y(X, y, equal_length=True):
     if X.ndim == 2:
         X = X[:, np.newaxis, :]
 
+    # Validate that all samples have the same number of dimensions (D).
+    expected_D = X[0].shape[0]
+    for sample in X:
+        if sample.shape[0] != expected_D:
+            raise ValueError("All time series must have the same number of dimensions (axis 0 in each sample).")
+
     # Validate equal length along the time dimension (axis 2) for (N, D, T).
     if equal_length:
         T = X[0].shape[1]  # The expected number of timestamps.
