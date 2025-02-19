@@ -29,8 +29,8 @@ class BaseTimeClassifier(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
 
         # CHECKING COST MATRICES INTEGRITY
         # ....
-
-        self.max_length = X.shape[1]
+        # use the last dimension of X to get the max_length (valid for 2D or 3D)
+        self.max_length = X.shape[-1]
         if self.min_length is None:
             warn("No min_length procided, using a minimum length of 1 by default")
             self.min_length = 1
