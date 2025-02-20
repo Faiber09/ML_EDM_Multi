@@ -81,6 +81,7 @@ class ClassifiersCollection(BaseTimeClassifier):
                  min_length=None,
                  feature_extraction=None,
                  calibration=True,
+                 calibration_method='sigmoid', # consider 'isotonic' (for + than 1000 samples)
                  classifiers=None,
                  classifiers_requ_2d=False,
                  feature_extractor_requ_2d=False,
@@ -96,6 +97,7 @@ class ClassifiersCollection(BaseTimeClassifier):
 
         self.feature_extraction = feature_extraction
         self.calibration = calibration
+        self.calibration_method = calibration_method
         self.classifiers_requ_2d = classifiers_requ_2d
         self.feature_extractor_requ_2d = feature_extractor_requ_2d
         self.calibrator_requ_2d = calibrator_requ_2d
@@ -186,7 +188,7 @@ class ClassifiersCollection(BaseTimeClassifier):
                 # if calibrator_requ_2d is True, the input data is reshaped to 2D.
                 if self.calibrator_requ_2d:
                     X_calib = X_calib.reshape(X_calib.shape[0], -1)
-                calib_clf = CalibratedClassifierCV(self.classifiers[i], cv='prefit')
+                calib_clf = CalibratedClassifierCV(self.classifiers[i], cv='prefit', method=self.calibration_method)
                 self.classifiers[i] = calib_clf.fit(X_calib, y_calib)
 
         return self
