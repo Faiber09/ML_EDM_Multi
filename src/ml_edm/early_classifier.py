@@ -42,12 +42,13 @@ class EarlyClassifier(BaseEstimator):
             Number of groups to aggregate the training time series into for each input length during learning of the
             trigger model. The optimal value of this hyperparameter may depend on the task.
         base_classifier: classifier instance, default = sklearn.ensemble.HistGradientBoostingClassifier()
-                Classifier instance to be cloned and trained for each input length.
+            Classifier instance to be cloned and trained for each input length.
         learned_timestamps_ratio: float, default=None
             Proportion of equally spaced time measurements/timestamps to use for training for all time series. A float
             between 0 and 1. Incompatible with parameters 'nb_classifiers'
         chronological_classifiers: ChronologicalClassifier()
-            Custom instance of the ChronologicalClassifier object used in combination with the trigger model.
+            Instance of ClassifiersCollection (or similar) that can handle partial inputs of shape (N, D, t).
+
         trigger_model: EconomyGamma()
             Custom instance of the EconomyGamma() object used in combination with the chronological classifiers.
 
@@ -113,6 +114,7 @@ class EarlyClassifier(BaseEstimator):
         self.min_length = value
 
     def _fit_classifiers(self, X, y):
+        #Fit the chronological_classifiers on (N, D, T) data.
         self.chronological_classifiers.fit(X, y, self.cost_matrices)
         return self
 
@@ -128,11 +130,11 @@ class EarlyClassifier(BaseEstimator):
 
     def fit(self, X, y):
         """
-        Fit the early classifier to given training data.
+        Fit the early classifier to given training data of shape (N, D, T).
         
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_timestamps)
+        X : array-like, shape (N, D, T)
             The input samples.
         y : ndarray
             Target labels relative to X.
@@ -194,6 +196,18 @@ class EarlyClassifier(BaseEstimator):
         return self
 
     def predict_proba(self, X):
+        """
+        Predict class probabilities for each time series in X.
+
+        Parameters
+        ----------
+        X : array-like, shape (N, D, T)
+
+        Returns
+        -------
+        probas : ndarray, shape (N, n_classes)
+            Predicted probability distribution over classes.
+        """
         return self.chronological_classifiers.predict_proba(X, self.cost_matrices)
 
     def predict(self, X):
@@ -203,7 +217,7 @@ class EarlyClassifier(BaseEstimator):
 
         Parameters
         ----------
-        X: array-like 
+        X: array-like shape (N, D, T)
             The input time series, potentially of various size.
 
         Returns
@@ -239,6 +253,25 @@ class EarlyClassifier(BaseEstimator):
         return classes, probas, triggers
 
     def score(self, X, y, return_metrics=False):
+        """
+        Evaluate the early classification performance on (N, D, T) data.
+
+        This method simulates an "online" scenario, where time series data
+        arrives incrementally at timestamps in self.timestamps.
+
+        Parameters
+        ----------
+        X : array-like, shape (N, D, T)
+        y : ndarray, shape (N,)
+        return_metrics : bool, default=False
+            If True, return a dict with accuracy, earliness, average cost, etc.
+
+        Returns
+        -------
+        score : float or tuple
+            By default, returns (average_cost, accuracy, earliness).
+            If return_metrics=True, returns a dict of named metrics.
+        """
 
         past_trigger = np.zeros((X.shape[0], )).astype(bool)
         trigger_mask = np.zeros((X.shape[0], )).astype(bool)
@@ -269,9 +302,9 @@ class EarlyClassifier(BaseEstimator):
             elif self.trigger_model.require_past_probas: # not call the predict to avoid recomputing all past probas T times
                 probas_tmp = all_probas[:, :t+1, :]
                 classes = probas_tmp.argmax(axis=-1)[:, -1]
-                triggers = self.trigger_model.predict(X[:, :l], probas_tmp, self.cost_matrices)
+                triggers = self.trigger_model.predict(X[..., :l], probas_tmp, self.cost_matrices)
             else:
-                classes, _, triggers = self.predict(X[:, :l])
+                classes, _, triggers = self.predict(X[..., :l])
             
             trigger_mask = triggers
             # already made predictions
@@ -303,7 +336,7 @@ class EarlyClassifier(BaseEstimator):
                 break
                 
         acc = (all_preds==y).mean()
-        earl = np.mean(all_t_star) / X.shape[1]
+        earl = np.mean(all_t_star) / X.shape[-1]
         avg_score = np.mean(all_f_star)
         #avg_score = average_cost(acc, earl, self.cost_matrices.alpha)
 
@@ -323,6 +356,23 @@ class EarlyClassifier(BaseEstimator):
         return (avg_score, acc, earl) 
     
     def get_post(self, X, y, use_probas=False, return_metrics=False):
+        """
+        Compute the "posterior" best time to trigger after seeing full data, for reference.
+
+        Parameters
+        ----------
+        X : array-like, shape (N, D, T)
+        y : ndarray, shape (N,)
+        use_probas : bool
+            If True, uses probability-weighted costs at each time step. Otherwise uses predicted classes.
+        return_metrics : bool, default=False
+            If True, returns metrics.
+
+        Returns
+        -------
+        If return_metrics=False, returns (all_t_post, all_f_post, all_preds_t_post).
+        Otherwise returns a dict with 'accuracy_post', 'earliness_post', 'average_cost_post', etc.
+        """
 
         if use_probas and not self.trigger_model.require_classifiers:
             raise ValueError("Unable to estimate probabilities for trigger models"
@@ -332,7 +382,7 @@ class EarlyClassifier(BaseEstimator):
         all_preds = np.zeros((len(self.timestamps), len(y)))
 
         for t, l in enumerate(self.timestamps):
-            probas = self.chronological_classifiers.predict_proba(X[:, :l], self.cost_matrices)
+            probas = self.chronological_classifiers.predict_proba(X[..., :l], self.cost_matrices)
             classes = np.argmax(probas, axis=-1)
             all_preds[t] = classes
             if use_probas:
@@ -362,7 +412,7 @@ class EarlyClassifier(BaseEstimator):
 
         if return_metrics:
             acc = (all_preds_t_post==y).mean()
-            earl = np.mean(all_t_post) / X.shape[1]
+            earl = np.mean(all_t_post) / X.shape[-1]
             return {
                 "accuracy_post": acc,
                 "earliness_post": earl,
