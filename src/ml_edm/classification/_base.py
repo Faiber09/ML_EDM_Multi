@@ -157,7 +157,7 @@ class BaseTimeClassifier(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
                 filtered = filter(lambda x: x <= length, self.timestamps)
                 length = min(filtered, key=lambda x: length-x, default=None)
                 if length is not None:
-                    serie = serie[:, :length]
+                    serie = serie[..., :length]
                     truncated = True
 
             if length in grouped_X.keys():
