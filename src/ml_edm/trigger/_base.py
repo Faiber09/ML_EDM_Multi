@@ -7,6 +7,10 @@ from ml_edm.utils import *
 
 
 class BaseTriggerModel(BaseEstimator, metaclass=ABCMeta):
+    '''
+    Abstract base class for “trigger models” in an early classification pipeline. Its primary job is to decide 
+    if and when to trigger a final classification decision on a time series that is incrementally revealed over time. 
+    '''
 
     def __init__(self, timestamps=None):
 
@@ -23,11 +27,11 @@ class BaseTriggerModel(BaseEstimator, metaclass=ABCMeta):
 
         if self.require_classifiers:
             X_probas = check_X_past_probas(X_probas)
-
+            # This line is fine as long as X_probas is shaped (N, T, K) with K numer of classes
             if len(y) != len(X_probas):
                 raise ValueError("y should be an array of classes of size N with N the number of examples in X_probas.")
 
-        self.max_length = X.shape[1]
+        self.max_length = X.shape[-1]
         self.n_timestamps = X_probas.shape[1]
         self.ts = X
 
@@ -85,7 +89,7 @@ class BaseTriggerModel(BaseEstimator, metaclass=ABCMeta):
 
         X_timestamps = []
         for ts in X:
-            diff = self.timestamps - len(ts)
+            diff = self.timestamps - ts.shape[-1]
             if 0 not in diff:
                 truncated = True
                 if (diff > 0).all(): # if ts smaller than all considered lengths
