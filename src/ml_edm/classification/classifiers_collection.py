@@ -155,7 +155,7 @@ class ClassifiersCollection(BaseTimeClassifier):
         # FEATURE EXTRACTION AND FITTING
         self.extractors = []
         for i, ts_length in enumerate(self.timestamps):
-            Xt = X[:, :, :ts_length]
+            Xt = X[..., :ts_length]
             if self.feature_extraction:
                 # If feature_extractor_requ_2d is True, the input data is reshaped to 2D.            
                 if self.feature_extractor_requ_2d:
@@ -294,7 +294,7 @@ class ClassifiersCollection(BaseTimeClassifier):
                             partial_series = []
                             for j in range(clf_idx + 1):
                                 # Slice the series up to the j-th timestamp.
-                                sliced = series[:, :, :self.timestamps[j]]
+                                sliced = series[..., :self.timestamps[j]]
                                 # If the extractor requires 2D, flatten the sliced data.
                                 if self.feature_extractor_requ_2d:
                                     sliced = sliced.reshape(sliced.shape[0], -1)
@@ -304,7 +304,7 @@ class ClassifiersCollection(BaseTimeClassifier):
                         # No feature extraction: simply slice the raw series.
                         partial_series = []
                         for j in range(clf_idx + 1):
-                            sliced = series[:, :, :self.timestamps[j]]
+                            sliced = series[..., :self.timestamps[j]]
                             # If the classifier was trained with 2D data, flatten the slice.
                             if self.classifiers_requ_2d:
                                 sliced = sliced.reshape(sliced.shape[0], -1)
