@@ -80,21 +80,27 @@ def check_X_y(X, y, equal_length=True):
     if X.ndim not in [2, 3]:
         raise ValueError("X should be a 2D or 3D array.")
     
+    # if array is 3D Validate that all samples have the same number of dimensions (D).
+    if X.ndim == 3:
+        expected_D = X[0].shape[0]
+        for sample in X:
+            if sample.shape[0] != expected_D:
+                raise ValueError("All time series must have the same number of dimensions (axis 0 in each sample).")
+    
+    ## =============================================================
+    #TO DO: CAUTION maybe this RESHAPE to 3D should not be done here
+    # IT WORKS BUT AT THE COST OF LOSS OF GENERALITY
+
     # If X is 2D (univariate with shape (N, T)), convert to (N, 1, T).
     if X.ndim == 2:
         X = X[:, np.newaxis, :]
+    ## =============================================================
 
-    # Validate that all samples have the same number of dimensions (D).
-    expected_D = X[0].shape[0]
-    for sample in X:
-        if sample.shape[0] != expected_D:
-            raise ValueError("All time series must have the same number of dimensions (axis 0 in each sample).")
-
-    # Validate equal length along the time dimension (axis 2) for (N, D, T).
+    # Validate equal length along the time dimension (last axis)
     if equal_length:
-        T = X[0].shape[1]  # The expected number of timestamps.
+        T = X[0].shape[-1]  # The expected number of timestamps.
         for sample in X:
-            if sample.shape[1] != T:
+            if sample.shape[-1] != T:
                 raise ValueError("All time series must have the same number of timestamps (axis 2 in each sample).")
     
     if len(X) == 0:
