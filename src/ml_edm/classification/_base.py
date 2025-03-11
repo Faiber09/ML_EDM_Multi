@@ -102,20 +102,28 @@ class BaseTimeClassifier(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
     def predict(self, X, cost_matrices=None):
         """
         Predict class labels for samples in X.
-
+    
         Parameters
         ----------
             X : array-like, shape (n_samples, n_timestamps)
                 The input time series, potentially of various size.
-            cost_matrices : object
+            cost_matrices : object, optional (default=None)
                 The input cost matrices, could be used for cost-sensitive learning.
-
+    
         Returns
         -------
             y : ndarray, shape (n_samples)
-                The labels for each sample the corresponding classifier has predict.
+                The labels for each sample the corresponding classifier has predicted.
         """
-        return self.predict_proba(X, cost_matrices).argmax(axis=-1)
+        try:
+            probas = self.predict_proba(X, cost_matrices)
+            return probas.argmax(axis=-1)
+        except (NotImplementedError, AttributeError):
+            # Group X by batch of same length
+            X, _ = check_X_y(X, None, equal_length=False)
+            grouped_X = self._grouped_by_length(X)
+            # Use direct predict method instead
+            return self._predict(grouped_X, cost_matrices)
     
     def _grouped_by_length(self, X):
 
@@ -188,3 +196,10 @@ class BaseTimeClassifier(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
         class to be true label, for each 
         past timestamps 
         """
+    
+    @abstractmethod
+    def _predict(self, grouped_X, cost_matrices):
+        """Predict the class labels directly
+        (used when predict_proba is not available)
+        """
+        pass

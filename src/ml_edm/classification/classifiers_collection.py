@@ -342,3 +342,51 @@ class ClassifiersCollection(BaseTimeClassifier):
         return predictions
 
 
+    def _predict(self, grouped_X, cost_matrices=None):
+        """
+        Direct prediction implementation for classifiers without predict_proba.
+        Similar to _predict_proba but calls predict() instead.
+        
+        Parameters:
+            grouped_X: dict
+                Dictionary where keys are time series lengths and values are lists/arrays of time series.
+            cost_matrices: optional
+                Not used directly in this method.
+                
+        Returns:
+            predictions: ndarray
+                Array of predicted class indices for each sample.
+        """
+        predictions = []
+        for length, series in grouped_X.items():
+            if length < self.timestamps[0]:
+                # For shorter series, use prior probabilities to determine most likely class
+                most_likely_class = np.argmax(self.class_prior)
+                predictions.append(np.full(len(series), most_likely_class))
+                returned_priors = True
+            else:
+                # Find the appropriate classifier for this length
+                clf_idx = np.where(self.timestamps == length)[0][0]
+                series = np.array(series)
+                
+                # Apply feature extraction if needed
+                if self.feature_extraction:
+                    if os.path.isdir(str(self.feature_extraction)):
+                        fts_idx = clf_idx
+                        if hasattr(self, "prev_models_input_lengths"):
+                            fts_idx = np.where(self.prev_models_input_lengths == length)[0][0]
+                        series = np.load(self.feature_extraction+f"/features_{fts_idx}.npy")
+                    else:
+                        if self.feature_extractor_requ_2d:
+                            series = series.reshape(series.shape[0], -1)
+                        series = self.extractors[clf_idx].transform(series)
+                elif self.classifiers_requ_2d:
+                    series = series.reshape(series.shape[0], -1)
+                    
+                # Directly call predict() instead of predict_proba()
+                predictions.append(self.classifiers[clf_idx].predict(series))
+        # Add this at the end of _predict before returning
+        if returned_priors:
+            warn("Some time series are of insufficient length for prediction; using most likely class based on prior probabilities.")
+        
+        return np.concatenate(predictions)
