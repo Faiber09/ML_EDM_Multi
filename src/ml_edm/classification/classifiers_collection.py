@@ -358,6 +358,7 @@ class ClassifiersCollection(BaseTimeClassifier):
                 Array of predicted class indices for each sample.
         """
         predictions = []
+        returned_priors = False
         for length, series in grouped_X.items():
             if length < self.timestamps[0]:
                 # For shorter series, use prior probabilities to determine most likely class
