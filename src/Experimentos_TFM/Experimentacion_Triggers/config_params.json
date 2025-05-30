@@ -1,45 +1,47 @@
-{
-    "SAVEPATH_clf": "models/",
-    "SAVEPATH_early_clf": "models/",
-    "RESULTSPATH": "results/", 
+{   
+    "DATAPATH": "experimentos_isotonic_hydra/datasets/",
+    "SAVEPATH_clf": "experimentos_isotonic_hydra/models/",
+    "SAVEPATH_early_clf": "experimentos_isotonic_hydra/models/",
+    "RESULTSPATH": "experimentos_isotonic_hydra/results/", 
     "sampling_ratio": 0.05,
     "min_length": 1,
-    "alphas": [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1], 
+    "alphas": [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+
     "classifiers": {
-        "RidgeClassifierCV_minirocket" : {"alphas":[1.0e-03, 4.6e-03, 2.1e-02, 1e-01, 4.6e-01, 2.1e+00, 1e+01, 4.6e+01, 2e+02, 1e+03]}
-    }, 
+        "RidgeClassifierCVP_hydra" : {"alphas":[1.0e-03, 4.6e-03, 2.1e-02, 1e-01, 4.6e-01, 2.1e+00, 1e+01, 4.6e+01, 2e+02, 1e+03]} 
+    },
+
     "classifiers_": {
-        "WEASEL_V2": {"support_probabilities":1, "random_state": 44},
         "RidgeClassifierCV_minirocket" : {"alphas":[1.0e-03, 4.6e-03, 2.1e-02, 1e-01, 4.6e-01, 2.1e+00, 1e+01, 4.6e+01, 2e+02, 1e+03]}, 
-        "LogisticRegressionCV" : {"random_state":42, "max_iter":500, "n_jobs":3}, 
-        "XGBClassifier": {"random_state": 42, "n_jobs": 2}, 
+        "XGBClassifier": {"random_state":42, "n_jobs":1}, 
         "RidgeClassifierCV_weasel" : {"alphas":[[1.0e-01, 4.64e-01, 2.15e+00, 1.0e+01, 4.64e+01, 2.15e+02, 1.0e+03, 4.64e+03, 2.15e+04, 1.0e+05]]}
     },
     "extractors": {
         "RidgeClassifierCV_weasel": {"method": "weasel2.0", "params": {"random_state": 42}},
-        "RidgeClassifierCV_minirocket": {"method": "minirocket", "path": "models/", "params": {"random_state":42, "n_jobs": 3}},
+        "RidgeClassifierCV_minirocket": {"method": "minirocket", "path": "experimentos_isotonic_hydra/models/", "params": {"random_state":42, "n_jobs": 3}},
+        "XGBClassifier": {"method": "tsfresh", "params": {"n_jobs": 3}},
         "RidgeClassifierCVP_minirocket": {"method": "minirocket", "params": {"random_state":42, "n_jobs": 3}},
-        "LogisticRegressionCV" : {"method": "minirocket", "params": {"random_state":42, "n_jobs": 3}}, 
-        "XGBClassifier": {"method": "tsfresh", "params": {"n_jobs": 2}} 
+        "RidgeClassifierCVP_hydra": {"method": "hydra", "path": "experimentos_isotonic_hydra/models/", "params": {"random_state":42, "n_jobs": 3, "n_kernels": 8, "n_groups": 64}}
     }, 
-    "trigger_models__" : {
-        "asap": {"manual_threshold": 0.0},
-        "alap": {"manual_threshold": 1.1}
-    }, 
-    "trigger_models": {
-        "economy": {},
-        "economy_vanilla": {"split_k": 0.333333333333333333, "nb_intervals": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]},  
-        "stopping_rule": {},
-        "proba_threshold": {}, 
-        "calimera": {}, 
-        "teaser_hm": {},
-        "teaser_avg_cost": {"objective": "avg_cost"},
-        "ecec": {},
-        "ecdire": {}
-    },
-    "val_ratio_trigger": 0.6,
+    "val_ratio_trigger": 0.4,
 
-    "datasets": ["DodgerLoopDay", "GestureMidAirD1", "GunPointAgeSpan", "PLAID",
+    "datasets" : [
+        "Libras", "BasicMotions", "RacketSports", "ERing", "Epilepsy",
+        "UWaveGestureLibrary", "NATOPS", "FingerMovements", "ArticularyWordRecognition",
+        "HandMovementDirection", "Cricket", "SelfRegulationSCP1", "LSST",
+        "EthanolConcentration",
+        "Heartbeat", 
+        "PhonemeSpectra", 
+        "EigenWorms",      
+        "PEMS-SF", 
+        "FaceDetection",
+        "SelfRegulationSCP2",                        
+        "DuckDuckGeese",    
+        "MotorImagery"
+    ],
+
+    
+    "datasets_blue": ["DodgerLoopDay", "GestureMidAirD1", "GunPointAgeSpan", "PLAID",
     "CBF", "Crop", "ChlorineConcentration", "CinCECGTorso", "ECG5000", "ECGFiveDays", "FaceAll", "FacesUCR", "FordA", 
     "FreezerRegularTrain", "FiftyWords", "HandOutlines", "InsectWingbeatSound", "ItalyPowerDemand", "Mallat", "MedicalImages", "MelbournePedestrian", 
     "MixedShapesRegularTrain", "MoteStrain", "NonInvasiveFetalECGThorax2", "PhalangesOutlinesCorrect", "ProximalPhalanxOutlineCorrect", 
@@ -51,13 +53,19 @@
     "Meat", "Plane", "PowerCons", "RefrigerationDevices", "Rock", "ScreenType", "ShapesAll", "SmoothSubspace",
     "SyntheticControl", "ToeSegmentation1", "UMD", "Wine", "Worms", "ElectricDevices"],
 
-    "datasets_" : ["AcousticContaminationMadrid_nmv", "AluminiumConcentration", "BitcoinSentiment", "BME", "ChilledWaterPredictor",
+    "multivariate_equal_length": ["ArticularyWordRecognition", "AtrialFibrillation", "BasicMotions",
+        "Cricket", "DuckDuckGeese", "EigenWorms", "Epilepsy","EthanolConcentration", "ERing", "FaceDetection", "FingerMovements",
+        "HandMovementDirection", "Handwriting", "Heartbeat", "Libras", "LSST", "MotorImagery", "NATOPS","PenDigits", "PEMS-SF", "PhonemeSpectra",
+        "RacketSports", "SelfRegulationSCP1", "SelfRegulationSCP2","StandWalkJump", "UWaveGestureLibrary"],
+
+    "datasets__" : ["AcousticContaminationMadrid_nmv", "AluminiumConcentration", "BitcoinSentiment", "BME", "ChilledWaterPredictor",
     "Chinatown", "Crop", "DhakaHourlyAirQuality", "DodgerLoopDay", "ElectricityPredictor", "EOGVerticalSignal", "FloodModeling3", "GestureMidAirD1", "GunPointAgeSpan", 
     "HouseholdPowerConsumption1", "HouseTwenty", "HotwaterPredictor", "InsectEPGRegularTrain", "MadridPM10Quality_nmv", 
     "MelbournePedestrian", "ParkingBirmingham_eq", "PLAID", "PrecipitationAndalusia_nmv", "Rock", "SemgHandGenderCh2", 
     "SmoothSubspace", "SolarRadiationAndalusia_nmv", "SteamPredictor", "TetuanEnergyConsumption", "UMD", "WindTurbinePower"], 
 
     "calib": 1,
+    "calibration_method": "isotonic",
     "split": "default",
     "n_jobs": 1,
     "z_normalized":0,

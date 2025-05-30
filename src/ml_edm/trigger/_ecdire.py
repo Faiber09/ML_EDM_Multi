@@ -37,10 +37,14 @@ class ECDIRE(BaseTriggerModel):
         clfs.fit(X[train_idx], y[train_idx])
         classifiers_cv.extend(clfs.classifiers)
 
-        preds = [clfs.classifiers[j].predict(X[test_idx, :t])
-                 for j, t in enumerate(clfs.timestamps)]
-        probs = [clfs.classifiers[j].predict_proba(X[test_idx, :t]) 
-                 for j, t in enumerate(clfs.timestamps)]
+        # Detectar dimensionalidad y usar la indexación apropiada
+        preds = [clfs.classifiers[j].predict(
+                    X[test_idx, ..., :t] if X.ndim > 2 else X[test_idx, :t]
+                ) for j, t in enumerate(clfs.timestamps)]
+
+        probs = [clfs.classifiers[j].predict_proba(
+                    X[test_idx, ..., :t] if X.ndim > 2 else X[test_idx, :t]
+                ) for j, t in enumerate(clfs.timestamps)]
         
         acc_cv, probas_cv = self._get_metrics(probs, preds, y[test_idx])
 
@@ -154,6 +158,10 @@ class ECDIRE(BaseTriggerModel):
                 self.chronological_classifiers.extractors[j]
                 for j in clf_idx
             ]
+        ## ===== ADDED ===== ##
+        #timestamp_to_idx = {t: i for i, t in enumerate(self.timestamps)}
+        #self.chronological_classifiers.timestamp_to_idx = timestamp_to_idx
+        ## ===== ADDED ===== ##
 
         return self
     

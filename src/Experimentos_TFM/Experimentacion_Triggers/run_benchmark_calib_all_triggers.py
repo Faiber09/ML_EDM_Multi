@@ -1,36 +1,38 @@
-import os
+# script con el que se ejecutaron los experimentos del TFM para triggers
+# se debe configurar el archivo config_params.json segun parámetros deseados
+
+import os 
 os.environ["MKL_NUM_THREADS"] = "1" 
 os.environ["NUMEXPR_NUM_THREADS"] = "1" 
 os.environ["OMP_NUM_THREADS"] = "1" 
-
 os.environ['KMP_WARNINGS'] = 'off'
 
-import sys
-import glob
 import json
 import copy
 import argparse 
 import warnings
+import time
 
 import numpy as np
 import pickle as pkl
-from sktime.classification.kernel_based import RocketClassifier
-from xgboost import XGBClassifier
-from sklearn.linear_model import RidgeClassifierCV, LogisticRegressionCV
-from aeon.classification.dictionary_based import WEASEL_V2
-from aeon.classification.distance_based import KNeighborsTimeSeriesClassifier
+# from sktime.classification.kernel_based import RocketClassifier
+# from xgboost import XGBClassifier 
+from sklearn.linear_model import RidgeClassifierCV
 
-from tqdm import tqdm
+#from aeon.classification.dictionary_based import WEASEL_V2
+from aeon.datasets import load_classification
+
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.utils.extmath import softmax
 from inspect import isclass, getmembers
 from joblib import Parallel, delayed
 
-from ml_edm.classification import EarlyClassifier, ChronologicalClassifiers
+from ml_edm.early_classifier import EarlyClassifier
+from ml_edm.classification.classifiers_collection import ClassifiersCollection
 from ml_edm.deep.deep_classifiers import *
-from ml_edm.cost_matrice import CostMatrices
-import ml_edm.trigger_models, trigger_models_full
+from ml_edm.cost_matrices import CostMatrices
+from ml_edm.trigger import *
 
 warnings.filterwarnings("ignore")
 
@@ -45,6 +47,8 @@ parser.add_argument("-base", "--baseline", default=True, action=argparse.Boolean
                     help="Whether or not fit baselines trigger models")
 args = parser.parse_args()
 
+# Ridge classifier with a predict_proba 
+# method to test calibration effect
 class RidgeClassifierCVP(RidgeClassifierCV):
     
     def predict_proba(self, X):
@@ -62,7 +66,8 @@ class NpEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return super(NpEncoder, self).default(obj)
-    
+
+# funcion original que requiere tener los datos en local (NO LA USARE)  
 def load_dataset(dataset_name, split, z_normalize=False):
     
     data_train = np.loadtxt(f'{dataset_name}/{dataset_name}_TRAIN.txt')
@@ -70,6 +75,9 @@ def load_dataset(dataset_name, split, z_normalize=False):
     
     X_train, X_test = (data_train[:, 1:], data_test[:, 1:])
     y_train, y_test = (data_train[:, 0], data_test[:, 0])
+
+    print(f"{dataset_name} : {X_train.shape}, {y_train.shape}")
+    print(f"{dataset_name} : {X_test.shape}, {y_test.shape}")  
 
     if split != 'default':
         X_ = np.concatenate((X_train, X_test), axis=0)
@@ -95,14 +103,97 @@ def load_dataset(dataset_name, split, z_normalize=False):
     os.chdir(os.path.expanduser('~'))
     return data_dict
 
+# Funcion para cargar datos desde la API de aeon usando load_classification de AEON
+def read_datasets(name: str, split=None, extract_path=None, return_metadata=True) -> tuple:
+    
+    result = load_classification(  # noqa: N806
+        name, split=split, extract_path=extract_path, return_metadata=return_metadata
+    )
+
+    if result is None:
+        print(f"Could not load dataset '{name}'")
+        # raise error
+        raise ValueError(f"Dataset '{name}' not found.")
+
+    if return_metadata:
+        X, y, meta = result
+    else:
+        X, y = result
+
+
+    if return_metadata:
+        return X, y, meta
+    else:
+        return X, y
+    
+# Esta fue la función usada en la experimentacion del TFM para cargar datos desde la API de aeon
+
+def load_dataset2(dataset_name, split='default', z_normalize=False, random_state=44, extract_path=None):
+    """
+    Carga datasets usando la librería aeon y los prepara para el experimento de Early Classification.
+    
+    Parameters
+    ----------
+    dataset_name : str
+        Nombre del dataset a cargar
+    split : float o 'default'
+        Si es 'default', usa los conjuntos train/test predefinidos
+        Si es un número, usa ese valor como proporción para train_size
+    z_normalize : bool
+        Si normalizar los datos con StandardScaler
+    extract_path : str
+        Ruta opcional donde buscar o guardar los datos
+        
+    Returns
+    -------
+    dict
+        Diccionario con X_train, y_train, X_test, y_test procesados
+    """
+    #carga default split de train y test
+    X_train, y_train, _ = read_datasets(dataset_name, split="train", extract_path=extract_path)
+    X_test, y_test, _ = read_datasets(dataset_name, split="test", extract_path=extract_path)
+
+    #print(f"DEBUG {dataset_name} : {X_train.shape}, {y_train.shape}")
+    #print(f"DEBUG {dataset_name} : {X_test.shape}, {y_test.shape}")  
+    
+    # si en los parametros del experimento en el .json se usa split distinto a "default" aqui se podria obtener otro resampleo
+    if split != 'default':
+        X_ = np.concatenate((X_train, X_test), axis=0)
+        y_ = np.concatenate((y_train, y_test), axis=0)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_, y_, train_size=split, random_state=random_state, stratify=y_
+        )
+    
+    if z_normalize:
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
+
+    lb = LabelEncoder()
+    y_train = lb.fit_transform(y_train)
+    y_test = lb.transform(y_test)
+
+    data_dict = {
+        "X_train": X_train,
+        "y_train": y_train,
+        "X_test": X_test,
+        "y_test": y_test
+    }
+    
+    os.chdir(os.path.expanduser('~'))
+    
+    return data_dict
+
 def extract_and_save_features(X, chrono_clf, path):
 
     if not os.path.isdir(path):
             os.makedirs(path)
 
-    for i, t in enumerate(chrono_clf.models_input_lengths):
-        Xt = X[:, :t]
+    for i, t in enumerate(chrono_clf.timestamps):
+        Xt = X[..., :t]
+        #print(f"DEBUG: Extractor {i}, timestamp={t}, series shape before transform: {Xt.shape}")
         Xt = chrono_clf.extractors[i].transform(Xt)
+        #print(f"DEBUG: Extractor {i}, timestamp={t}, series shape after transform: {Xt.shape}")
 
         save_path = os.path.join(path, f"features_{i}.npy")
         np.save(save_path, Xt)
@@ -112,6 +203,8 @@ def extract_and_save_features(X, chrono_clf, path):
 def _fit_chrono_clf(X, y, name, base_classifier, feature_extraction, params, alpha=None):
 
     chrono_clf = None
+    # params['val_ratio_trigger'] es la proporcion usada para fitear el trigger
+    # es decir es la proporcion que reservo para X_trigger
     X_clf, X_trigger, y_clf, y_trigger = train_test_split(
         X, y, test_size=params['val_ratio_trigger'], 
         random_state=params['random_state'],
@@ -125,30 +218,22 @@ def _fit_chrono_clf(X, y, name, base_classifier, feature_extraction, params, alp
             path = os.path.join(params['LOADPATH'], name, f"{type(base_classifier).__name__}", 'classifiers.pkl')
         with open(path, "rb") as clf_file:
             chrono_clf = pkl.load(clf_file)
-
-    elif base_classifier == "FCN":
-        backbone = LSTM(input_dim=1, n_layers=1, hidden_dim=64, return_all_states=True)
-        clf_head = ClassificationHead(hidden_dim=64, n_classes=len(np.unique(y)))
-        elects = ELECTS(1, backbone, clf_head, alpha, epsilon=0)
-
-        chrono_clf = DeepChronologicalClassifier(
-            model=elects,
-            **params['classifiers']['Elects']
-        )
-        chrono_clf.fit(X, y)
     else:
         calib = bool(params['calib'])
-        chrono_clf = ChronologicalClassifiers(
+        # calibration_method='sigmoid' by default, # consider 'isotonic' (for + than 1000 samples)
+        # si calib = 1, CalibratedClassifierCV es usado con cv = prefit, es decir se usa el clasificador ya aprendido y se calibra con muestras nuevas
+        chrono_clf = ClassifiersCollection(
             base_classifier=base_classifier,
             sampling_ratio=params['sampling_ratio'],
             min_length=params['min_length'],
             feature_extraction=feature_extraction, 
-            calibration=calib
+            calibration=calib,
+            calibration_method=params['calibration_method']
         )
         chrono_clf.fit(X_clf, y_clf)
 
     if params['SAVEPATH_clf'] and not params['LOADPATH']:
-        clf_name = type(base_classifier).__name__ if isinstance(chrono_clf, ChronologicalClassifiers) \
+        clf_name = type(base_classifier).__name__ if isinstance(chrono_clf, ClassifiersCollection) \
             else chrono_clf.model._get_name()
         if feature_extraction:
             path = os.path.join(params['SAVEPATH_clf'], name, f"{clf_name}", feature_extraction['method'])
@@ -163,11 +248,15 @@ def _fit_chrono_clf(X, y, name, base_classifier, feature_extraction, params, alp
 
     return chrono_clf, X_trigger, y_trigger
 
-def _fit_early_classifier(X, y, name, chrono_clf, trigger_model, alpha, n_classes, params, features):
+def _fit_early_classifier(X, y, name, chrono_clf, trigger_model, trigger_class, alpha, n_classes, params, features):
+    # ======================================================
+    # ==== This block is for changing the cost matrices ====
+    # ======================================================
 
     def delay_cost(t):
-        inflexion_point = 0
-        return np.exp(((t/X.shape[1])-inflexion_point) * np.log(100))
+        return np.exp((t/X.shape[-1]) * np.log(100))
+    
+    delay_cost = None # comment this line if you want to use the function above for the delay cost
     
     #small_values = (n_classes / (n_classes+9))
     small_values = 1
@@ -177,35 +266,25 @@ def _fit_early_classifier(X, y, name, chrono_clf, trigger_model, alpha, n_classe
     idx_min_class = classes[counts.argmin()]
     misclf_cost[:, idx_min_class] *= 100
 
-    cost_matrices = CostMatrices(chrono_clf.models_input_lengths, n_classes, alpha=alpha, 
-                                 delay_cost=None, missclf_cost=misclf_cost)
+    misclf_cost = None # comment this line if you want to use the function above for the misclf cost
 
-    class_trigger = trigger_model
-    if trigger_model in ['teaser_hm', 'teaser_avg_cost']:
-        class_trigger = 'teaser'
+    # =========================================================
 
-    if trigger_model in ['economy_vanilla']:
-        class_trigger = 'economy'
-
-    if trigger_model in ['asap', 'alap']: # baselines with manual extreme thresholds
-        class_trigger = 'proba_threshold'
-
-    try:
-        trigger_params = params['trigger_models'][trigger_model]
-    except KeyError:
-        trigger_params = {}
+    cost_matrices = CostMatrices(chrono_clf.timestamps, n_classes, alpha=alpha, 
+                                 delay_cost=delay_cost, misclf_cost=misclf_cost)
+    
+    trigger = copy.deepcopy(trigger_class)
+    trigger.timestamps = chrono_clf.timestamps
+    if trigger_model == "ecdire":
+        trigger.chronological_classifiers = copy.deepcopy(chrono_clf)
 
     e_clf = EarlyClassifier(
-        chronological_classifiers=chrono_clf,
-        prefit_classifiers=True,
-        trigger_model=class_trigger,
-        trigger_params=trigger_params, 
-        cost_matrices=cost_matrices
+        chrono_clf, trigger, cost_matrices, prefit_classifiers=True
     )
-    e_clf.fit(X, y, trigger_proportion=0) # load early clf ?
+    e_clf.fit(X, y) 
     
     if params['SAVEPATH_early_clf']:
-        trigg_name = type(chrono_clf.base_classifier).__name__ if isinstance(chrono_clf, ChronologicalClassifiers) \
+        trigg_name = type(chrono_clf.base_classifier).__name__ if isinstance(chrono_clf, ClassifiersCollection) \
             else chrono_clf.model._get_name()
         if features:
             pp = os.path.join(params['SAVEPATH_early_clf'], name, f"{trigg_name}", features['method'], f"alpha_{str(alpha)}")
@@ -263,23 +342,24 @@ def get_output_metrics(early_clf, X, y, compute_post=False, dict_post_cache=None
         
     return metrics, metrics_post, metrics_additional 
 
-def train_for_one_alpha(alpha, params, prefit_cost_unaware=False):
+def train_for_one_alpha(alpha, params, trigger_models, prefit_cost_unaware=False):
+
+    print(f"\nProcessing alpha {alpha} ...")
     
     alpha0 = params['alphas'][0]
-    dict_trigger = dict.fromkeys(params['trigger_models'])
+    dict_trigger = dict.fromkeys(trigger_models.keys())
     dict_clf = dict.fromkeys(params['classifiers'])
     dict_data = dict.fromkeys(params['datasets'])
     metrics_alpha = {k1 : {k2: copy.deepcopy(dict_data) for k2, _ in copy.deepcopy(dict_clf).items()} 
                      for k1, _ in copy.deepcopy(dict_trigger).items()}
 
     os.chdir(os.path.expanduser('~'))
-    #pbar_data = tqdm(params['datasets'])
     pbar_data = params['datasets']
     for dataset in pbar_data:
-        #pbar_data.set_description("Processing %s" %dataset)
-        print(f"Processing {dataset} ...")
+        print(f"\nProcessing {dataset} ...")
+        start_time = time.perf_counter()
         os.chdir(params['DATAPATH'])
-        data = load_dataset(dataset, params['split'], params['z_normalized'])
+        data = load_dataset2(dataset, params['split'], params['z_normalized'], params['random_state'], extract_path=None)
         n_classes = len(np.unique(data['y_train']))
 
         for idx, clf in enumerate(params['classifiers'].keys()):
@@ -313,7 +393,8 @@ def train_for_one_alpha(alpha, params, prefit_cost_unaware=False):
                     features_paths = None
 
             past_post = None
-            for i, trigger in enumerate(params['trigger_models'].keys()):
+            
+            for i, (trigger, t) in enumerate(trigger_models.items()):
                 # if trigger model invariant to classifiers used
                 # only train it once, i.e. the first one 
                 if idx != 0 and trigger in ["edsc", "ects"]:
@@ -336,28 +417,35 @@ def train_for_one_alpha(alpha, params, prefit_cost_unaware=False):
                     with open(early_path + f"/early_classifier_{trigger}.pkl", "rb") as load_file:
                         early_clf = pkl.load(load_file)
                     
+                    # ==== This block is for changing the cost matrices ====
                     def delay_cost(t):
                         inflexion_point = 0
-                        return np.exp(((t/data['X_train'].shape[1])-inflexion_point) * np.log(100))
+                        return np.exp(((t/data['X_train'].shape[-1])-inflexion_point) * np.log(100))
+                    delay_cost = None # COMMENT this line if you want to use the function above for the delay cost
+                    
                     small_values = 1
                     misclf_cost = small_values - np.eye(n_classes) * small_values
                     classes, counts = np.unique(data['y_train'], return_counts=True)
                     idx_min_class = classes[counts.argmin()]
                     misclf_cost[:, idx_min_class] *= 100
-                    
-                    early_clf.cost_matrices = CostMatrices(chrono_clf.models_input_lengths, n_classes, 
-                                                           alpha=alpha, delay_cost=delay_cost, missclf_cost=misclf_cost)
+
+                    misclf_cost = None # COMMENT this line if you want to use the function above for the misclf cost
+                    # =========================================================
+
+                    early_clf.cost_matrices = CostMatrices(chrono_clf.timestamps, n_classes, 
+                                                           alpha=alpha, delay_cost=delay_cost, misclf_cost=misclf_cost)
                 else:
                     if features_extractor:
                         if features_paths:
                             chrono_clf.feature_extraction = features_paths['train']
                     early_clf = _fit_early_classifier(X_trigger, y_trigger, dataset, chrono_clf, 
-                                                      trigger, alpha, n_classes, params, features_extractor)
+                                                      trigger, t, alpha, n_classes, params, features_extractor)
 
                 get_post = True if i == 0 else False
                 if features_extractor:
                     if features_paths:
                         early_clf.chronological_classifiers.feature_extraction = features_paths['test']
+                        # TO DO: is this ok?
                         if trigger == "ecdire":
                             early_clf.new_chronological_classifiers.feature_extraction = features_paths['test']
 
@@ -365,6 +453,9 @@ def train_for_one_alpha(alpha, params, prefit_cost_unaware=False):
                                                         compute_post=get_post, dict_post_cache=past_post)
                 past_post = post
                 metrics_alpha[trigger][clf][dataset] = {**metrics, **post, **add}
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+        print(f"Dataset {dataset} processed in {elapsed_time:.2f} seconds")
     
     tmp_dir = os.path.join(params['RESULTSPATH'], f"alpha_{str(alpha)}")
     if not os.path.isdir(tmp_dir):
@@ -375,10 +466,9 @@ def train_for_one_alpha(alpha, params, prefit_cost_unaware=False):
 
     return {alpha: metrics_alpha}
 
-def compute_baselines(alphas, params):
+def compute_baselines(alphas, params, trigger_models):
 
-    #dict_trigger = dict.fromkeys(['asap', 'alap']) # As soon as possible vs as late as possible
-    dict_trigger = dict.fromkeys(params['trigger_models'].keys())
+    dict_trigger = dict.fromkeys(trigger_models.keys())
     dict_clf = dict.fromkeys(params['classifiers'])
     dict_data = dict.fromkeys(params['datasets'])
     metrics = {k1 : {k2: copy.deepcopy(dict_data) for k2, _ in copy.deepcopy(dict_clf).items()}
@@ -389,7 +479,7 @@ def compute_baselines(alphas, params):
     for dataset in params["datasets"]:
         print(f"Processing {dataset} ...")
         os.chdir(params['DATAPATH'])
-        data = load_dataset(dataset, params['split'])
+        data = load_dataset2(dataset, params['split'], params['z_normalized'], params['random_state'], extract_path=None)
         n_classes = len(np.unique(data['y_train']))
 
         for clf in params['classifiers'].keys():
@@ -411,11 +501,11 @@ def compute_baselines(alphas, params):
                                                                base_clf, features_extractor, params)
             
             for alpha in alphas:
-                for trigger in params['trigger_models'].keys():
+                for trigger, t in trigger_models.items():
                     print(f"Testing {trigger} with alpha : {alpha} ....")
                     
                     early_clf = _fit_early_classifier(X_trigger, y_trigger, dataset, chrono_clf, 
-                                            trigger, alpha, n_classes, params, features_extractor) 
+                                            trigger, t, alpha, n_classes, params, features_extractor) 
                     m = early_clf.score(data['X_test'], data['y_test'], return_metrics=True)       
                     metrics_alpha[alpha][trigger][clf][dataset] = copy.deepcopy(m)
     
@@ -424,7 +514,7 @@ def compute_baselines(alphas, params):
         if not os.path.isdir(path):
             os.mkdir(path)
             
-        with open(os.path.join(path, f"baselines_ridgeclassifiercv_minirocket.json"), "w") as tmp_file:
+        with open(os.path.join(path, f"baselines.json"), "w") as tmp_file:
             json.dump(metrics_alpha[alpha], tmp_file, cls=NpEncoder)
     
     return metrics_alpha 
@@ -433,13 +523,28 @@ if __name__ == '__main__':
 
     with open(PARAMSPATH) as param_file:
         params = json.load(param_file)
+
+    # se usará la partición por defecto de los datasets, si se quiere una distinta es necesario usar "split": 1 en json
+    # también será necesario cambiar el random state de read_datasets
+
+
+    # TRIGGERS are the considered triggers for the experiments
+    # Watch out for the _underscore in the name of the trigger (not considered)
+    TRIGGERS_ = {
+    "proba_threshold": ProbabilityThreshold(np.arange(10))
+    }
+
     
-    if params['trigger_models'] == 'all':
-        all_trigger_models = [t[0] for t in getmembers(sys.modules['trigger_models'], isclass) 
-                              if t[1].__module__=="trigger_models"]
-        all_trigger_models += [t[0] for t in getmembers(sys.modules['trigger_models_full'], isclass) 
-                              if t[1].__module__=="trigger_models_full"]
-        params['trigger_models'] = all_trigger_models
+    TRIGGERS = {
+    "calimera": CALIMERA(np.arange(10)), 
+    #"ecdire": ECDIRE(ClassifiersCollection()),
+    "ecec": ECEC(np.arange(10)),  
+    "economy": EconomyGamma(np.arange(10), random_state=params['random_state']),
+    "proba_threshold": ProbabilityThreshold(np.arange(10)),
+    "stopping_rule": StoppingRule(np.arange(10)),
+    "teaser_hm": TEASER(np.arange(10)), 
+    "teaser_avg_cost": TEASER(np.arange(10), objective="avg_cost")
+    }
     
     if args.preload_clf:
         params['LOADPATH'] = params['SAVEPATH_clf']
@@ -453,22 +558,20 @@ if __name__ == '__main__':
     results = []
     # first run with parallelisation over trigger models 
     # to learn and save cost-unaware models 
-    for name, p in params['trigger_models'].items():
-        params['trigger_models'][name]['n_jobs'] = params['n_jobs']
-    results.append(train_for_one_alpha(params['alphas'][0], params, False))
+    for name, p in TRIGGERS.items():
+        p.set_params(n_jobs=params['n_jobs'])
+    results.append(train_for_one_alpha(params['alphas'][0], params, TRIGGERS, False))
 
     if args.save:
         params['LOADPATH'] = params['SAVEPATH_clf']
     
-    for name, p in params['trigger_models'].items():
-        params['trigger_models'][name]['n_jobs'] = 1
+    for name, p in TRIGGERS.items():
+        p.set_params(n_jobs=params['n_jobs'])
     res = Parallel(n_jobs=params['n_jobs'], backend='multiprocessing') \
-        (delayed(train_for_one_alpha)(a, params, True) for a in params['alphas'][1:])
+        (delayed(train_for_one_alpha)(a, params, TRIGGERS, True) for a in params['alphas'][1:])
     results.extend(res)
     
-    os.chdir(os.path.expanduser('~'))
-    with open(params['RESULTSPATH'] + 'results_eco.json', 'w') as res_file:
-        json.dump(results, res_file, cls=NpEncoder)
-    
     if args.baseline:
-        compute_baselines(params['alphas'], params)
+        TRIGGERS = {"asap": ProbabilityThreshold(np.arange(10), manual_threshold=0),   
+                    "alap": ProbabilityThreshold(np.arange(10), manual_threshold=1.1)}
+        compute_baselines(params['alphas'], params, TRIGGERS)

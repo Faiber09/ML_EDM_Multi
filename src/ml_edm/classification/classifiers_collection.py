@@ -1,4 +1,4 @@
-import os
+import os 
 import copy
 import numpy as np
 
@@ -145,9 +145,9 @@ class ClassifiersCollection(BaseTimeClassifier):
             if isinstance(self.feature_extraction, dict) and \
                 'method' in self.feature_extraction.keys():
                 
-                if self.feature_extraction['method'] not in ['minirocket', 'weasel2.0', 'tsfresh']:
+                if self.feature_extraction['method'] not in ['minirocket', 'weasel2.0', 'tsfresh', 'hydra']:
                     raise ValueError("Argument 'method' from 'feature_extraction' should be one of "
-                                    "['minirocket', 'weasel2.0', 'tsfresh']")
+                                    "['minirocket', 'weasel2.0', 'tsfresh', 'hydra']")
             elif not isinstance(self.feature_extraction, str):
                 raise ValueError("Argument 'feature_extraction' should be one of dictionnary "
                                 "or string (path from which to retreive already computed features)")
@@ -217,7 +217,17 @@ class ClassifiersCollection(BaseTimeClassifier):
                 returned_priors = True
             else:
                 # We are assuming that length match one of the timestamps
-                clf_idx = np.where(self.timestamps == length)[0][0]
+                
+                # CAREFUL: This is the corrected timestamp-to-classifier mapping ADDED
+                clf_idx = np.where(self.timestamps == length)[0][0]  # original code
+                # IMPORTANT: This is the corrected timestamp-to-classifier mapping
+                # if hasattr(self, "timestamp_to_idx") and length in self.timestamp_to_idx:
+                #     # Use the mapping created by ECDIRE
+                #     clf_idx = self.timestamp_to_idx[length]
+                # else:
+                #     # Use the original logic - find the closest classifier for this length
+                #     clf_idx = np.searchsorted(self.timestamps, length, side='right') - 1
+
                 # Ensure it's a numpy array; expected shape: (N, D, length)
                 series = np.array(series)
                 if self.feature_extraction:
@@ -368,6 +378,15 @@ class ClassifiersCollection(BaseTimeClassifier):
             else:
                 # Find the appropriate classifier for this length
                 clf_idx = np.where(self.timestamps == length)[0][0]
+
+                # IMPORTANT: This is the corrected timestamp-to-classifier mapping
+                # if hasattr(self, "timestamp_to_idx") and length in self.timestamp_to_idx:
+                #     # Use the mapping created by ECDIRE
+                #     clf_idx = self.timestamp_to_idx[length]
+                # else:
+                #     # Use the original logic - find the closest classifier for this length
+                #     clf_idx = np.searchsorted(self.timestamps, length, side='right') - 1
+
                 series = np.array(series)
                 
                 # Apply feature extraction if needed
