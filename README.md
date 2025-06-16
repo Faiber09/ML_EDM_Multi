@@ -7,14 +7,23 @@ The ``ml_edm`` package provides tools to facilitate dealing with the **Early Cla
 ## Install 
 
 ```console
+# Original library:
 pip install git+https://github.com/ML-EDM/ml_edm
+# This Fork:
+pip install git+https://github.com/Faiber09/ML_EDM_Multi
 ```
+## What’s New in This Fork
 
-For more information about the ML-EDM research domain, including latest publications, please have a look at the ML-EDM research GitHub: https://github.com/ML-EDM/ML-EDM.
+- **Multivariate Time Series Support**  
+  This version extends the original `ml_edm` package to handle **multivariate** time series. The upstream toolkit only supported univariate data.
+
+- **AEON 1.0.0 Compatibility**  
+  We’ve applied minor adjustments so that `ml_edm` now works seamlessly with **AEON ≥ 1.0.0** (the original release targeted AEON 0.4.0).
+
 
 ## Citation
 
-If you use the package, please refer to it using the following the bibtex entry: 
+If you use the original package, please refer to it using the following the bibtex entry: 
 
     @misc{renault2024mledmpackagepythontoolkit,
         title={ml_edm package: a Python toolkit for Machine Learning based Early Decision Making}, 
